@@ -51,8 +51,9 @@ Reverses everything the setup script did:
 
 ### Prerequisites
 
+- **Linux** — these scripts depend on GNU coreutils (`timeout`, `seq`) and are written for bash 4+. They will not work with macOS's default Bash (3.2).
 - [Ollama](https://ollama.com/) running on your network (default port `11434`).
-- At least one Artcraft CLI tool installed (`photocraft-cli` confirmed; others follow the `<name>-cli` pattern).
+- At least one Artcraft CLI tool **installed as a system-level binary** (`photocraft-cli` confirmed; others follow the `<name>-cli` pattern). AppImages or portable zips will not be detected — each `*-cli` must be on your `$PATH` and executable.
 
 ### Install & configure
 

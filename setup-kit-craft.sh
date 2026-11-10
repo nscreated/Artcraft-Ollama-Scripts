@@ -329,7 +329,6 @@ ask() {  # $1=prompt  $2=default
   printf '%s' "${reply:-$2}"
 }
 
-# Turns "192.168.1.10", "http://host", "host:8080/" etc. into http://host:port.
 normalize_url() {
   local in="$1"
   in="${in#http://}"; in="${in#https://}"
