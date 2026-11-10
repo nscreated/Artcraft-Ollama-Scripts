@@ -11,7 +11,7 @@
 # The script asks for the Ollama PC's address (port 11434 is assumed) and the
 # model name (the "ollama/" prefix is added for you). To skip the prompts, set
 # OLLAMA_URL and/or MODEL in the environment, e.g.:
-#   OLLAMA_URL=http://192.168.1.10:11434 MODEL=ollama/qwen3.6:35b-a3b ./setup-kit-craft.sh
+#   OLLAMA_URL=http://your-host:11434 MODEL=qwen3.6 ./setup-kit-craft.sh
 #
 # kit-<app> launchers
 #   kit-<app> starts the app window with a fixed control port (unless something is
@@ -57,8 +57,6 @@ set -u
 
 OLLAMA_URL="${OLLAMA_URL:-}"      # asked interactively if empty
 MODEL="${MODEL:-}"                # asked interactively if empty
-DEFAULT_HOST="192.168.1.10"
-DEFAULT_MODEL="qwen3.6:35b-a3b"
 OLLAMA_PORT=11434
 READ_ROOT="${READ_ROOT:-$HOME/Documents/Artcraft-In}"
 WRITE_ROOT="${WRITE_ROOT:-$HOME/Documents/Artcraft-Out}"
@@ -346,7 +344,7 @@ normalize_url() {
 prompt_settings() {
   if [ -z "$OLLAMA_URL" ]; then
     local host
-    host="$(ask "Ollama PC address (IP or hostname, port $OLLAMA_PORT assumed)" "$DEFAULT_HOST")"
+    host="$(ask "Ollama PC address (IP or hostname, port $OLLAMA_PORT assumed)" "")"
     OLLAMA_URL="$(normalize_url "$host")"
   else
     OLLAMA_URL="$(normalize_url "$OLLAMA_URL")"
@@ -354,7 +352,7 @@ prompt_settings() {
 
   if [ -z "$MODEL" ]; then
     local name
-    name="$(ask "Model name (after ollama/)" "$DEFAULT_MODEL")"
+    name="$(ask "Model name (after ollama/)" "")"
     name="${name#ollama/}"
     MODEL="ollama/$name"
   else
