@@ -132,4 +132,4 @@ stream: true
 
 ## License
 
-MIT (or specify your preferred license)
+MIT
