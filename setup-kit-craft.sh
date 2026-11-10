@@ -11,7 +11,7 @@
 # The script asks for the Ollama PC's address (port 11434 is assumed) and the
 # model name (the "ollama/" prefix is added for you). To skip the prompts, set
 # OLLAMA_URL and/or MODEL in the environment, e.g.:
-#   OLLAMA_URL=http://your-host:11434 MODEL=qwen3.6 ./setup-kit-craft.sh
+#   OLLAMA_URL=http://192.168.1.10:11434 MODEL=ollama/qwen3.6:35b-a3b ./setup-kit-craft.sh
 #
 # kit-<app> launchers
 #   kit-<app> starts the app window with a fixed control port (unless something is
@@ -49,14 +49,24 @@
 #   ~/Documents/Artcraft-In and ~/Documents/Artcraft-Out
 # Override with READ_ROOT / WRITE_ROOT if needed.
 #
+# PATH: the kit-<app> launchers are saved in ~/.local/bin. If that folder is not on
+# your PATH, the script offers to add it to your shell startup files (.bashrc,
+# .zshrc, .profile, and fish if present). The launchers also remember Kit's full
+# path, so they work even when PATH is not set up (e.g. in PRoot/containers).
+#
 # Options:
+#   --no-path       do not offer to edit shell startup files
 #   --no-combined   do not write/replace ~/.kit.yml
 #   --dry-run       show what would be detected and written, change nothing
 
 set -u
 
+ORIG_PATH="$PATH"      # the PATH your shell had; this script adds to its own copy later
+
 OLLAMA_URL="${OLLAMA_URL:-}"      # asked interactively if empty
 MODEL="${MODEL:-}"                # asked interactively if empty
+DEFAULT_HOST="192.168.1.10"
+DEFAULT_MODEL="qwen3.6:35b-a3b"
 OLLAMA_PORT=11434
 READ_ROOT="${READ_ROOT:-$HOME/Documents/Artcraft-In}"
 WRITE_ROOT="${WRITE_ROOT:-$HOME/Documents/Artcraft-Out}"
@@ -65,10 +75,14 @@ BIN_DIR="${BIN_DIR:-$HOME/.local/bin}"
 KIT_INSTALL_URL="https://raw.githubusercontent.com/mark3labs/kit/master/install.sh"
 
 WRITE_COMBINED=1
+UPDATE_PATH=1
+KIT_BIN=""
+PATH_MARK="# added by setup-kit-craft.sh"
 DRY_RUN=0
 for arg in "$@"; do
   case "$arg" in
     --no-combined) WRITE_COMBINED=0 ;;
+    --no-path) UPDATE_PATH=0 ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help) sed -n '2,/^set -u/{/^set -u/!p}' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg" >&2; exit 2 ;;
@@ -265,9 +279,20 @@ headless_cfg="$headless"
 live_cfg="$live"
 log_file="$log_file"
 ollama_url="$OLLAMA_URL"
+kit_bin="$KIT_BIN"
 $app_args_line
 EOF
     cat <<'EOF'
+
+# Find Kit even when PATH is not set up (e.g. PRoot): use the path recorded at
+# setup time, else search PATH. Put its folder first on PATH for the app and MCP servers.
+[ -x "$kit_bin" ] || kit_bin="$(command -v kit 2>/dev/null)"
+if [ -z "$kit_bin" ]; then
+  echo "kit-$app: Kit was not found. Re-run setup-kit-craft.sh." >&2
+  exit 127
+fi
+PATH="$(dirname "$kit_bin"):$HOME/.local/bin:/usr/local/bin:$PATH"
+export PATH
 
 listening() { (exec 3<>/dev/tcp/127.0.0.1/"$port") 2>/dev/null; }
 
@@ -293,7 +318,7 @@ if [ "${KIT_MCP_MODE:-auto}" != headless ] && [ -n "$port" ]; then
     [ -f "$log_file" ] && echo "          See $log_file for the app's output." >&2
   fi
 fi
-exec kit --config "$cfg" --provider-url "$ollama_url" "$@"
+exec "$kit_bin" --config "$cfg" --provider-url "$ollama_url" "$@"
 EOF
   } > "$launcher"
   chmod +x "$launcher"
@@ -324,11 +349,12 @@ write_combined_config() {  # args: "app:cli" pairs
 ask() {  # $1=prompt  $2=default
   local reply=""
   if [ -r /dev/tty ] && [ -w /dev/tty ]; then
-    read -r -p "$1 [$2]: " reply < /dev/tty > /dev/tty 2>&1 || reply=""
+    { read -r -p "$1 [$2]: " reply < /dev/tty > /dev/tty 2>&1; } 2>/dev/null || reply=""
   fi
   printf '%s' "${reply:-$2}"
 }
 
+# Turns "192.168.1.10", "http://host", "host:8080/" etc. into http://host:port.
 normalize_url() {
   local in="$1"
   in="${in#http://}"; in="${in#https://}"
@@ -343,7 +369,7 @@ normalize_url() {
 prompt_settings() {
   if [ -z "$OLLAMA_URL" ]; then
     local host
-    host="$(ask "Ollama PC address (IP or hostname, port $OLLAMA_PORT assumed)" "")"
+    host="$(ask "Ollama PC address (IP or hostname, port $OLLAMA_PORT assumed)" "$DEFAULT_HOST")"
     OLLAMA_URL="$(normalize_url "$host")"
   else
     OLLAMA_URL="$(normalize_url "$OLLAMA_URL")"
@@ -351,7 +377,7 @@ prompt_settings() {
 
   if [ -z "$MODEL" ]; then
     local name
-    name="$(ask "Model name (after ollama/)" "")"
+    name="$(ask "Model name (after ollama/)" "$DEFAULT_MODEL")"
     name="${name#ollama/}"
     MODEL="ollama/$name"
   else
@@ -365,9 +391,47 @@ prompt_settings() {
   say "                 $WRITE_ROOT   (created for convenience; not enforced by the MCP servers)"
 }
 
+# -------------------------------------------------------- PATH persistence ----
+
+ensure_path_persistent() {
+  case ":$ORIG_PATH:" in
+    *":$BIN_DIR:"*) say "[ok] $BIN_DIR is already on your PATH."; return 0 ;;
+  esac
+  say ""
+  say "$BIN_DIR is not on your PATH, so kit-<app> can't be run by name yet."
+  if [ "$UPDATE_PATH" -eq 0 ]; then
+    say "(skipped: --no-path) Run the launchers by full path, e.g. $BIN_DIR/kit-<app>"
+    return 0
+  fi
+  case "$(ask "Add it to your shell startup files?" "y")" in
+    y|Y|yes|YES) ;;
+    *) say "Skipped. Run the launchers by full path, e.g. $BIN_DIR/kit-<app>"; return 0 ;;
+  esac
+
+  local rc found_any=0
+  for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+    [ -f "$rc" ] || continue
+    found_any=1
+    if grep -qF "$PATH_MARK" "$rc" 2>/dev/null; then continue; fi
+    printf '\n%s\nexport PATH="%s:$PATH"\n' "$PATH_MARK" "$BIN_DIR" >> "$rc"
+    say "  [updated] $rc"
+  done
+  if [ "$found_any" -eq 0 ]; then
+    printf '%s\nexport PATH="%s:$PATH"\n' "$PATH_MARK" "$BIN_DIR" >> "$HOME/.profile"
+    say "  [created] $HOME/.profile"
+  fi
+  if command -v fish >/dev/null 2>&1 || [ -d "$HOME/.config/fish" ]; then
+    mkdir -p "$HOME/.config/fish/conf.d"
+    printf '%s\nfish_add_path -g "%s"\n' "$PATH_MARK" "$BIN_DIR" > "$HOME/.config/fish/conf.d/kit-craft.fish"
+    say "  [updated] $HOME/.config/fish/conf.d/kit-craft.fish"
+  fi
+  say "  Open a new shell for this to take effect, or run:  export PATH=\"$BIN_DIR:\$PATH\""
+}
+
 # ------------------------------------------------------------------ main ----
 
 ensure_kit || say "[!!] Continuing without a working Kit install."
+KIT_BIN="$(command -v kit 2>/dev/null || true)"
 
 say ""
 say "Checking for installed Craft app CLIs..."
@@ -416,7 +480,4 @@ say ""
 say "Done."
 say "  Single app:   kit-<app>      (e.g. kit-${FOUND[0]%%:*}; starts the app window on its own control port, falls back to headless)"
 [ "$WRITE_COMBINED" -eq 1 ] && say "  All apps:     kit            (uses ~/.kit.yml)"
-case ":$PATH:" in
-  *":$BIN_DIR:"*) ;;
-  *) say "  NOTE: $BIN_DIR is not on your PATH; add it to use the kit-<app> launchers." ;;
-esac
+ensure_path_persistent
